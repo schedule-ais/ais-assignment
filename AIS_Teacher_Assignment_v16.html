@@ -369,6 +369,9 @@
           <button class="btn-success" type="button" id="saveBtn">💾 Save to Database</button>
           <button class="btn-danger" type="button" id="clearBtn">Clear Form</button>
           <button class="btn-light" type="button" id="exportBtn">Export JSON</button>
+          <button type="button" id="syncSheetsBtn" onclick="syncToGoogleSheets().then(r=>showToast(r.ok?'✅ Synced to Google Sheets!':'⚠️ Sync failed — check console'))" style="background:linear-gradient(135deg,#0f9d58,#34a853);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">
+            <img src="https://ssl.gstatic.com/docs/spreadsheets/favicon3.ico" style="width:14px;height:14px;" onerror="this.style.display='none'"> 📊 Sync to Google Sheets
+          </button>
         </div>
       </div>
 
@@ -1284,15 +1287,81 @@ function loadFromLocalStorage(){
 
 // ---- Google Sheets ----
 function submitGoogleSheetForm(payload){
-  const form=el('googleSheetHiddenForm');if(!form||!GOOGLE_SCRIPT_URL=https://script.google.com/macros/s/AKfycbyBcrTyBFjb-sc8rwosVenXv4pfna2gVq_nijWr3mDEy0ZtN7AZuiM8ns0Cr-_OzhAU5w/exec;)return false;
+  const form=el('googleSheetHiddenForm');if(!form||!GOOGLE_SCRIPT_URL)return false;
   form.innerHTML='';form.action=GOOGLE_SCRIPT_URL;
   Object.entries(payload).forEach(([k,v])=>{const inp=document.createElement('input');inp.type='hidden';inp.name=k;inp.value=v;form.appendChild(inp);});
   form.submit();return true;
 }
-function saveToGoogleSheet(record){
-  const payload={campus:record.campus||'',teacherId:record.teacherId||'',teacherName:record.teacherName||'',subject:record.subject||'',roomNo:record.roomNo||'',teacherStatus:record.teacherStatus||'',positions:Array.isArray(record.positions)?record.positions.join(', '):'',totalCredits:String(record.totalCredits||0),detectedLevels:Array.isArray(record.detectedLevels)?record.detectedLevels.join(', '):'',detectedCycles:Array.isArray(record.detectedCycles)?record.detectedCycles.join(', '):'',savedAt:record.savedAt||'',planningPeriods:String(record.planningPeriods||0),recessDuty:String(record.recessDuty||0),proctoringDuty:String(record.proctoringDuty||0),assignmentJson:JSON.stringify(record.assignment||{}),testConnection:record.testConnection?'YES':''};
-  try{return Promise.resolve(submitGoogleSheetForm(payload));}catch(e){return Promise.resolve(false);}
+// ── Modern fetch-based Google Sheets sync ──────────────────────────────
+function syncToGoogleSheets(){
+  if(!GOOGLE_SCRIPT_URL||GOOGLE_SCRIPT_URL.includes('YOUR_SCRIPT_ID'))return Promise.resolve({ok:false,msg:'No URL'});
+  const campus=state.campus==='MBZ'?'MBZ Campus':'AD Campus';
+  const year=el('academicYear')?el('academicYear').value:'AY_2026-2027';
+  const teacherList=teacherNames.map(n=>({
+    name:n,status:teacherStatusMap[n]||'Active',
+    gender:(teacherProfiles[n]||{}).gender||'',
+    mobile:(teacherProfiles[n]||{}).mobile||'',
+    email:(teacherProfiles[n]||{}).email||''
+  }));
+  const payload={action:'saveAll',campus:campus,academicYear:year,
+    records:database.filter(r=>r.savedAt),
+    teachers:teacherList,advisors:classAdvisors};
+  showSyncStatus('syncing');
+  // Use URL-encoded form data — works with Google Apps Script without CORS issues
+  const formData=new FormData();
+  formData.append('data',JSON.stringify(payload));
+  return fetch(GOOGLE_SCRIPT_URL,{method:'POST',body:formData})
+    .then(res=>res.text())
+    .then(txt=>{
+      console.log('Sheets response:',txt);
+      showSyncStatus('success');
+      return {ok:true};
+    })
+    .catch(err=>{
+      console.error('Sheets sync error:',err);
+      // Try fallback: hidden iframe form POST
+      return syncViaForm(payload);
+    });
 }
+function syncViaForm(payload){
+  return new Promise(resolve=>{
+    try{
+      const form=el('googleSheetHiddenForm');
+      if(!form){resolve({ok:false});return;}
+      form.innerHTML='';
+      form.action=GOOGLE_SCRIPT_URL;
+      form.method='POST';
+      const inp=document.createElement('input');
+      inp.type='hidden';inp.name='data';inp.value=JSON.stringify(payload);
+      form.appendChild(inp);
+      form.submit();
+      showSyncStatus('success');
+      resolve({ok:true});
+    }catch(e){
+      console.error('Form fallback error:',e);
+      showSyncStatus('error');
+      resolve({ok:false,msg:e.toString()});
+    }
+  });
+}
+function showSyncStatus(status){
+  let bar=document.getElementById('syncStatusBar');
+  if(!bar){bar=document.createElement('div');bar.id='syncStatusBar';
+    bar.style.cssText='position:fixed;bottom:60px;right:18px;padding:10px 16px;border-radius:10px;'
+      +'font-size:12px;font-weight:700;z-index:9998;display:flex;align-items:center;gap:8px;'
+      +'box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .5s ease;max-width:300px;';
+    document.body.appendChild(bar);}
+  clearTimeout(window.syncStatusTimer);bar.style.opacity='1';
+  if(status==='syncing'){bar.style.background='#1d4ed8';bar.style.color='#fff';
+    bar.innerHTML='<span>⏳</span> Syncing to Google Sheets...';}
+  else if(status==='success'){bar.style.background='#065f46';bar.style.color='#fff';
+    bar.innerHTML='✅ Google Sheets — Synced!';
+    window.syncStatusTimer=setTimeout(()=>{bar.style.opacity='0';},3500);}
+  else if(status==='error'){bar.style.background='#991b1b';bar.style.color='#fff';
+    bar.innerHTML='⚠️ Sync failed — saved locally only';
+    window.syncStatusTimer=setTimeout(()=>{bar.style.opacity='0';},4000);}
+}
+function saveToGoogleSheet(record){return syncToGoogleSheets();}
 
 // ---- Action handlers ----
 function onCampusChange(){
@@ -1575,8 +1644,8 @@ function saveRecord(){
   // Deduplicate: remove ALL existing records for this teacher+subject before inserting
   database=database.filter(e=>!(e.teacherName===record.teacherName&&e.subject===record.subject));
   database.push(record);
-  saveToLocalStorage();updateAll();showToast('Saved locally. Sending to Google Sheets...');
-  saveToGoogleSheet(record).then(ok=>{showToast(ok?'Saved: '+teacherName+' - '+subjectName:'Saved locally only.');});
+  saveToLocalStorage();updateAll();showToast('💾 Saved locally — syncing to Sheets...');
+  saveToGoogleSheet(record).then(r=>{if(r&&r.ok)showToast('✅ '+teacherName+' — '+subjectName+' synced!');});
 }
 function exportJSON(){
   const blob=new Blob([JSON.stringify(database,null,2)],{type:'application/json'});
