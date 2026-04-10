@@ -1284,7 +1284,7 @@ function loadFromLocalStorage(){
 
 // ---- Google Sheets ----
 function submitGoogleSheetForm(payload){
-  const form=el('googleSheetHiddenForm');if(!form||!GOOGLE_SCRIPT_URL)return false;
+  const form=el('googleSheetHiddenForm');if(!form||!GOOGLE_SCRIPT_URL=https://script.google.com/macros/s/AKfycbyBcrTyBFjb-sc8rwosVenXv4pfna2gVq_nijWr3mDEy0ZtN7AZuiM8ns0Cr-_OzhAU5w/exec;)return false;
   form.innerHTML='';form.action=GOOGLE_SCRIPT_URL;
   Object.entries(payload).forEach(([k,v])=>{const inp=document.createElement('input');inp.type='hidden';inp.name=k;inp.value=v;form.appendChild(inp);});
   form.submit();return true;
